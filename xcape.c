@@ -86,6 +86,8 @@ void delete_keys (Key_t *keys);
 
 void print_usage (const char *program_name);
 
+static void failure_on(Bool fail, const char* message);
+
 /************************************************************************
  * Main function
  ***********************************************************************/
@@ -111,39 +113,39 @@ int main (int argc, char **argv)
     rec_range->device_events.last = ButtonRelease;
 
     while ((ch = getopt (argc, argv, "dfe:t:")) != -1)
-    {
-        switch (ch)
-        {
-        case 'd':
+      {
+	switch (ch)
+	  {
+	  case 'd':
             self->debug = True;
             /* imply -f (no break) */
-        case 'f':
+	  case 'f':
             self->foreground = True;
             break;
-        case 'e':
+	  case 'e':
             mapping = optarg;
             break;
-        case 't':
+	  case 't':
             {
-                int ms = atoi (optarg);
-                if (ms > 0)
+	      int ms = atoi (optarg);
+	      if (ms > 0)
                 {
-                    self->timeout.tv_sec = ms / 1000;
-                    self->timeout.tv_usec = (ms % 1000) * 1000;
+		  self->timeout.tv_sec = ms / 1000;
+		  self->timeout.tv_usec = (ms % 1000) * 1000;
                 }
-                else
+	      else
                 {
-                    fprintf (stderr, "Invalid argument for '-t': %s.\n", optarg);
-                    print_usage (argv[0]);
-                    return EXIT_FAILURE;
+		  fprintf (stderr, "Invalid argument for '-t': %s.\n", optarg);
+		  print_usage (argv[0]);
+		  return EXIT_FAILURE;
                 }
             }
             break;
-        default:
+	  default:
             print_usage (argv[0]);
             return EXIT_SUCCESS;
-        }
-    }
+	  }
+      }
 
     if (optind < argc)
     {
@@ -152,48 +154,30 @@ int main (int argc, char **argv)
         return EXIT_SUCCESS;
     }
 
-    if (!XInitThreads ())
-    {
-        fprintf (stderr, "Failed to initialize threads.\n");
-        exit (EXIT_FAILURE);
-    }
+    failure_on(!XInitThreads (), "Failed to initialize threads.\n");
 
     self->data_conn = XOpenDisplay (NULL);
     self->ctrl_conn = XOpenDisplay (NULL);
 
-    if (!self->data_conn || !self->ctrl_conn)
-    {
-        fprintf (stderr, "Unable to connect to X11 display. Is $DISPLAY set?\n");
-        exit (EXIT_FAILURE);
-    }
-    if (!XQueryExtension (self->ctrl_conn,
-                "XTEST", &dummy, &dummy, &dummy))
-    {
-        fprintf (stderr, "Xtst extension missing\n");
-        exit (EXIT_FAILURE);
-    }
-    if (!XRecordQueryVersion (self->ctrl_conn, &dummy, &dummy))
-    {
-        fprintf (stderr, "Failed to obtain xrecord version\n");
-        exit (EXIT_FAILURE);
-    }
-    if (!XkbQueryExtension (self->ctrl_conn, &dummy, &dummy,
-            &dummy, &dummy, &dummy))
-    {
-        fprintf (stderr, "Failed to obtain xkb version\n");
-        exit (EXIT_FAILURE);
-    }
+    failure_on(!self->data_conn || !self->ctrl_conn,
+	       "Unable to connect to X11 display. Is $DISPLAY set?\n");
+
+    failure_on(!XQueryExtension (self->ctrl_conn,
+				 "XTEST", &dummy, &dummy, &dummy),
+	       "Xtst extension missing\n");
+    failure_on(!XRecordQueryVersion (self->ctrl_conn, &dummy, &dummy),
+	       "Failed to obtain xrecord version\n");
+
+    failure_on(!XkbQueryExtension (self->ctrl_conn, &dummy, &dummy,
+				   &dummy, &dummy, &dummy),
+	       "Failed to obtain xkb version\n");
 
     self->map = parse_mapping (self->ctrl_conn, mapping, self->debug);
 
-    if (self->map == NULL)
-    {
-        fprintf (stderr, "Failed to parse_mapping\n");
-        exit (EXIT_FAILURE);
-    }
+    failure_on(self->map == NULL, "Failed to parse_mapping\n");
 
     if (self->foreground != True)
-        daemon (0, 0);
+      daemon (0, 0);
 
     sigemptyset (&self->sigset);
     sigaddset (&self->sigset, SIGINT);
@@ -201,32 +185,23 @@ int main (int argc, char **argv)
     pthread_sigmask (SIG_BLOCK, &self->sigset, NULL);
 
     pthread_create (&self->sigwait_thread,
-            NULL, sig_handler, self);
+		    NULL, sig_handler, self);
 
     self->record_ctx = XRecordCreateContext (self->ctrl_conn,
-            0, &client_spec, 1, &rec_range, 1);
+					     0, &client_spec, 1, &rec_range, 1);
 
-    if (self->record_ctx == 0)
-    {
-        fprintf (stderr, "Failed to create xrecord context\n");
-        exit (EXIT_FAILURE);
-    }
+    failure_on(self->record_ctx == 0, "Failed to create xrecord context\n");
 
     XSync (self->ctrl_conn, False);
 
-    if (!XRecordEnableContext (self->data_conn,
-                self->record_ctx, intercept, (XPointer)self))
-    {
-        fprintf (stderr, "Failed to enable xrecord context\n");
-        exit (EXIT_FAILURE);
-    }
+    failure_on(!XRecordEnableContext (self->data_conn,
+				      self->record_ctx, intercept, (XPointer)self),
+	       "Failed to enable xrecord context\n");
 
     pthread_join (self->sigwait_thread, NULL);
 
     if (!XRecordFreeContext (self->ctrl_conn, self->record_ctx))
-    {
-        fprintf (stderr, "Failed to free xrecord context\n");
-    }
+      fprintf (stderr, "Failed to free xrecord context\n");
 
     if (self->debug) fprintf (stdout, "main exiting\n");
 
@@ -259,12 +234,9 @@ void *sig_handler (void *user_data)
 
     XLockDisplay (self->ctrl_conn);
 
-    if (!XRecordDisableContext (self->ctrl_conn,
-                self->record_ctx))
-    {
-        fprintf (stderr, "Failed to disable xrecord context\n");
-        exit(EXIT_FAILURE);
-    }
+    failure_on(!XRecordDisableContext (self->ctrl_conn,
+				       self->record_ctx),
+	       "Failed to disable xrecord context\n");
 
     XSync (self->ctrl_conn, False);
 
@@ -591,4 +563,13 @@ void print_usage (const char *program_name)
 {
     fprintf (stdout, "Usage: %s [-d] [-f] [-t timeout_ms] [-e <mapping>]\n", program_name);
     fprintf (stdout, "Runs as a daemon unless -d or -f flag is set\n");
+}
+
+static void failure_on(Bool fail, const char* message)
+{
+  if (fail)
+    {
+      fprintf (stderr, message);
+      exit (EXIT_FAILURE);
+    }
 }
