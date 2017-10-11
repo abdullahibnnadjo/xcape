@@ -8,11 +8,19 @@ CFLAGS += -Wall
 CFLAGS += `pkg-config --cflags xtst x11`
 LDFLAGS += `pkg-config --libs xtst x11`
 LDFLAGS += -pthread
+STRIP =
+ifeq (1,$(DEBUG))
+	CFLAGS += -ggdb
+else
+	CFLAGS += -O2 -march=native
+	STRIP = strip $(TARGET)
+endif
 
 all: $(TARGET)
 
 $(TARGET): xcape.c
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS)
+	$(STRIP)
 
 install:
 	$(INSTALL) -d -m 0755 $(DESTDIR)$(PREFIX)/bin
