@@ -569,7 +569,7 @@ static void failure_on(Bool fail, const char* message)
 {
   if (fail)
     {
-      fprintf (stderr, message);
+      fprintf (stderr, "%s", message);
       exit (EXIT_FAILURE);
     }
 }
